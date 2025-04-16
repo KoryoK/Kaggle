@@ -1,0 +1,178 @@
+import requests
+from bs4 import BeautifulSoup
+import csv
+from googleapiclient.discovery import build
+from google.oauth2 import service_account
+
+class WebScraper:
+    def __init__(self, urls):
+        """
+        Initialize the web scraper with a list of URLs
+        
+        Args:
+            urls (list): List of URLs to scrape
+        """
+        self.urls = urls
+        self.scraped_data = []
+
+    def scrape_url(self, url):
+        """
+        Scrape a single URL
+        
+        Args:
+            url (str): URL to scrape
+        
+        Returns:
+            dict: Scraped data from the page
+        """
+        try:
+            # Send a GET request to the URL
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()  # Raise an exception for bad status codes
+
+            # Parse the HTML content
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # CUSTOMIZE THIS PART: Extract specific data you want
+            # Example extraction (modify according to your needs):
+            title = soup.find('title').text.strip() if soup.find('title') else 'No Title'
+            
+            # Extract paragraphs
+            paragraphs = [p.text.strip() for p in soup.find_all('p')]
+            
+            return {
+                'url': url,
+                'title': title,
+                'paragraphs': paragraphs
+            }
+        
+        except requests.RequestException as e:
+            print(f"Error scraping {url}: {e}")
+            return None
+
+    def scrape_multiple_urls(self):
+        """
+        Scrape multiple URLs
+        
+        Returns:
+            list: List of scraped data from all URLs
+        """
+        self.scraped_data = []
+        for url in self.urls:
+            data = self.scrape_url(url)
+            if data:
+                self.scraped_data.append(data)
+        return self.scraped_data
+
+    def export_to_csv(self, filename='scraped_data.csv'):
+        """
+        Export scraped data to a CSV file
+        
+        Args:
+            filename (str): Name of the CSV file to export
+        """
+        if not self.scraped_data:
+            print("No data to export!")
+            return
+
+        # Determine the keys (columns) based on the first scraped item
+        keys = self.scraped_data[0].keys()
+
+        with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=keys)
+            writer.writeheader()
+            
+            for item in self.scraped_data:
+                # Flatten the paragraphs list to a string for CSV
+                if 'paragraphs' in item:
+                    item['paragraphs'] = ' || '.join(item['paragraphs'])
+                writer.writerow(item)
+        
+        print(f"Data exported to {filename}")
+
+    def export_to_google_sheets(self, spreadsheet_id, range_name):
+        """
+        Export scraped data to Google Sheets
+        
+        Note: Requires Google Cloud setup and credentials
+        
+        Args:
+            spreadsheet_id (str): ID of the Google Sheets spreadsheet
+            range_name (str): Range to write data to (e.g., 'Sheet1!A1')
+        """
+        # TODO: Set up Google Cloud credentials
+        # 1. Create a service account in Google Cloud Console
+        # 2. Download the JSON key file
+        # 3. Install google-api-python-client and google-auth
+        
+        try:
+            # Path to your Google Cloud service account key JSON file
+            SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+            SERVICE_ACCOUNT_FILE = 'path/to/your/service_account_key.json'
+
+            creds = service_account.Credentials.from_service_account_file(
+                SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+
+            service = build('sheets', 'v4', credentials=creds)
+
+            # Prepare data for Google Sheets
+            values = [list(self.scraped_data[0].keys())]  # Headers
+            for item in self.scraped_data:
+                # Convert paragraphs to a single string
+                row = [
+                    item.get(key, '') if key != 'paragraphs' 
+                    else ' || '.join(item['paragraphs']) if key == 'paragraphs'
+                    else item.get(key, '')
+                    for key in values[0]
+                ]
+                values.append(row)
+
+            body = {
+                'values': values
+            }
+
+            result = service.spreadsheets().values().update(
+                spreadsheetId=spreadsheet_id, 
+                range=range_name,
+                valueInputOption='RAW', 
+                body=body
+            ).execute()
+
+            print(f"{result.get('updatedCells')} cells updated.")
+
+        except Exception as e:
+            print(f"Error exporting to Google Sheets: {e}")
+
+def main():
+    # Example usage
+    urls_to_scrape = [
+        'https://example.com',
+        'https://example.org'
+    ]
+
+    scraper = WebScraper(urls_to_scrape)
+    
+    # Scrape URLs
+    scraped_data = scraper.scrape_multiple_urls()
+    
+    # Export to CSV
+    scraper.export_to_csv()
+    
+    # Export to Google Sheets (requires additional setup)
+    # scraper.export_to_google_sheets('your_spreadsheet_id', 'Sheet1!A1')
+
+if __name__ == '__main__':
+    main()
+
+# Prerequisites:
+# 1. Install required libraries:
+#    pip install requests beautifulsoup4 google-api-python-client google-auth
+#
+# 2. Ethical and Legal Considerations:
+#    - Always check website's robots.txt
+#    - Respect website's terms of service
+#    - Add delays between requests to avoid overwhelming servers
+#    - Some websites prohibit scraping - always get permission first
